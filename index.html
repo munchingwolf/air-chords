@@ -23,6 +23,7 @@
   button { cursor: pointer; }
   input { width: min(260px, calc(100vw - 24px)); }
   input::placeholder { color: rgba(245, 165, 36, 0.5); }
+  #note { font-size: 11px; color: var(--muted); text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
 
   .meter { position: fixed; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 3px; z-index: 2; }
   .meter span { width: 40px; height: 6px; border-radius: 3px; background: rgba(40, 36, 32, 0.85); transition: background 80ms; }
@@ -65,6 +66,7 @@
   <label class="sr-only" for="song">Song chords</label>
   <input id="song" placeholder="paste a song's chords, e.g. G D Em C" autocomplete="off" spellcheck="false">
   <button id="guideBtn" type="button">Open Guide</button>
+  <div id="note" role="status"></div>
 </div>
 
 <div class="meter" id="meter" aria-hidden="true"></div>
@@ -92,6 +94,7 @@
     <li><b>Hold up N fingers</b> (both hands add up) to play chord N. Thumbs count too.</li>
     <li><b>Fists or hands down</b> = silence.</li>
     <li>Pick a <b>key</b> to get its 7 chords, or <b>paste any song's chords</b> (from a chord sheet, any format). Up to 10 chords, one per finger.</li>
+    <li>Pick a <b>sound</b>: 4 built-in synths, or any of the 128 standard instruments (piano, guitars, bass, strings, choir, brass, sax, flute, sitar…). Each one loads the first time you pick it.</li>
     <li>Hold each shape for a moment; the chord changes once your hand is steady.</li>
   </ul>
   <table id="guideTable"></table>
@@ -110,9 +113,30 @@ const INSTRUMENTS = {
   // partials: [oscillator type, frequency ratio, detune cents, gain]
   'Warm Synth': { partials: [['sawtooth', 1, -7, 0.5], ['sawtooth', 1, 7, 0.5], ['triangle', 2, 0, 0.15]], cutoff: 1500, attack: 0.06, release: 0.8 },
   'Soft Pad': { partials: [['triangle', 1, -5, 0.6], ['triangle', 1, 5, 0.6], ['sine', 2, 0, 0.15]], cutoff: 1000, attack: 0.6, release: 1.6 },
-  'Keys': { partials: [['sine', 1, 0, 0.8], ['triangle', 2, 0, 0.15], ['sine', 4, 0, 0.05]], cutoff: 4000, attack: 0.005, release: 0.4, sustain: 0.3, decay: 1.5 },
-  'Organ': { partials: [['sine', 1, 0, 0.6], ['sine', 2, 0, 0.35], ['sine', 3, 0, 0.2], ['sine', 4, 0, 0.1]], cutoff: 5000, attack: 0.02, release: 0.12 },
+  'Synth Keys': { partials: [['sine', 1, 0, 0.8], ['triangle', 2, 0, 0.15], ['sine', 4, 0, 0.05]], cutoff: 4000, attack: 0.005, release: 0.4, sustain: 0.3, decay: 1.5 },
+  'Synth Organ': { partials: [['sine', 1, 0, 0.6], ['sine', 2, 0, 0.35], ['sine', 3, 0, 0.2], ['sine', 4, 0, 0.1]], cutoff: 5000, attack: 0.02, release: 0.12 },
 };
+
+// The 128 General MIDI instruments, 8 per family, as recorded samples from the free FluidR3 soundfont.
+const SAMPLES = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM';
+const FAMILIES = ['Piano', 'Chromatic Percussion', 'Organ', 'Guitar', 'Bass', 'Strings', 'Ensemble', 'Brass', 'Reed', 'Pipe', 'Synth Lead', 'Synth Pad', 'Synth Effects', 'Ethnic', 'Percussive', 'Sound Effects'];
+const GM = `acoustic_grand_piano bright_acoustic_piano electric_grand_piano honkytonk_piano electric_piano_1 electric_piano_2 harpsichord clavinet
+  celesta glockenspiel music_box vibraphone marimba xylophone tubular_bells dulcimer
+  drawbar_organ percussive_organ rock_organ church_organ reed_organ accordion harmonica tango_accordion
+  acoustic_guitar_nylon acoustic_guitar_steel electric_guitar_jazz electric_guitar_clean electric_guitar_muted overdriven_guitar distortion_guitar guitar_harmonics
+  acoustic_bass electric_bass_finger electric_bass_pick fretless_bass slap_bass_1 slap_bass_2 synth_bass_1 synth_bass_2
+  violin viola cello contrabass tremolo_strings pizzicato_strings orchestral_harp timpani
+  string_ensemble_1 string_ensemble_2 synth_strings_1 synth_strings_2 choir_aahs voice_oohs synth_choir orchestra_hit
+  trumpet trombone tuba muted_trumpet french_horn brass_section synth_brass_1 synth_brass_2
+  soprano_sax alto_sax tenor_sax baritone_sax oboe english_horn bassoon clarinet
+  piccolo flute recorder pan_flute blown_bottle shakuhachi whistle ocarina
+  lead_1_square lead_2_sawtooth lead_3_calliope lead_4_chiff lead_5_charang lead_6_voice lead_7_fifths lead_8_bass__lead
+  pad_1_new_age pad_2_warm pad_3_polysynth pad_4_choir pad_5_bowed pad_6_metallic pad_7_halo pad_8_sweep
+  fx_1_rain fx_2_soundtrack fx_3_crystal fx_4_atmosphere fx_5_brightness fx_6_goblins fx_7_echoes fx_8_scifi
+  sitar banjo shamisen koto kalimba bagpipe fiddle shanai
+  tinkle_bell agogo steel_drums woodblock taiko_drum melodic_tom synth_drum reverse_cymbal
+  guitar_fret_noise breath_noise seashore bird_tweet telephone_ring helicopter applause gunshot`.split(/\s+/);
+const FLATS = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 
 const $ = (id) => document.getElementById(id);
 const video = $('video'), canvas = $('canvas'), g = canvas.getContext('2d');
@@ -121,7 +145,14 @@ const keySel = $('key'), instSel = $('instrument'), songInput = $('song');
 // ---------- controls ----------
 for (const { value, label } of keyOptions()) keySel.add(new Option(label, value));
 keySel.value = '7'; // G, like the original
-for (const name of Object.keys(INSTRUMENTS)) instSel.add(new Option(name, name));
+const optgroup = (label, options) => {
+  const group = Object.assign(document.createElement('optgroup'), { label });
+  group.append(...options);
+  instSel.append(group);
+};
+optgroup('Built-in synths', Object.keys(INSTRUMENTS).map((name) => new Option(name, name)));
+FAMILIES.forEach((family, f) => optgroup(family, GM.slice(f * 8, f * 8 + 8).map((id) =>
+  new Option(id.replace(/_+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), id))));
 const meter = $('meter');
 for (let i = 0; i < 8; i++) meter.append(document.createElement('span'));
 
@@ -133,6 +164,7 @@ function rebuildSlots() {
   key = parseKey(keySel.value);
   const custom = parseSong(songInput.value);
   slots = custom.length ? custom : diatonicChords(key);
+  preload();
   $('slots').replaceChildren(...slots.map((c, i) => Object.assign(document.createElement('span'), { textContent: `${i + 1} ${c.name}` })));
   $('guideTable').replaceChildren(...slots.map((c, i) => {
     const tr = document.createElement('tr');
@@ -144,7 +176,7 @@ function rebuildSlots() {
   setSlot(current);
 }
 keySel.onchange = songInput.oninput = rebuildSlots;
-instSel.onchange = () => { const s = slot; slot = -1; setSlot(s); };
+instSel.onchange = () => { preload(); const s = slot; slot = -1; setSlot(s); };
 
 const guide = $('guide');
 $('guideBtn').onclick = $('helpBtn').onclick = () => guide.showModal();
@@ -177,6 +209,7 @@ function initAudio() {
 function playChord(chord) {
   stopChord();
   if (!chord || !ac) return;
+  if (!INSTRUMENTS[instSel.value]) return playSamples(voice(chord), instSel.value);
   const inst = INSTRUMENTS[instSel.value], t = ac.currentTime;
   const out = ac.createGain(), filter = ac.createBiquadFilter();
   filter.type = 'lowpass';
@@ -210,6 +243,73 @@ function stopChord() {
   out.gain.setTargetAtTime(0, t, release / 4);
   for (const osc of oscs) osc.stop(t + release * 2);
   playing = null;
+}
+
+// ---------- sampled instruments ----------
+const samples = new Map(); // "instrument/midi" -> Promise<{ buf, loop }>
+
+function loadNote(inst, midi) {
+  const id = `${inst}/${midi}`;
+  if (!samples.has(id)) {
+    const url = `${SAMPLES}/${inst}-mp3/${FLATS[midi % 12]}${Math.floor(midi / 12) - 1}.mp3`;
+    samples.set(id, fetch(url)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
+      .then((data) => ac.decodeAudioData(data))
+      .then(findLoop)
+      .catch((err) => { samples.delete(id); throw err; })); // let a later pick retry
+  }
+  return samples.get(id);
+}
+
+// Samples are ~3 s. Sustained sounds (strings, organ, pads…) stay level the whole time, so they loop while a
+// chord is held; decaying ones (piano, guitar…) just ring out. Loop points sit on zero crossings to avoid clicks.
+function findLoop(buf) {
+  const d = buf.getChannelData(0), sr = buf.sampleRate;
+  const rms = (from, to) => {
+    let sum = 0;
+    for (let i = Math.floor(from * sr); i < to * sr; i++) sum += d[i] * d[i];
+    return Math.sqrt(sum / ((to - from) * sr));
+  };
+  const zero = (t) => {
+    let i = Math.floor(t * sr);
+    while (i < d.length - 1 && !(d[i] <= 0 && d[i + 1] > 0)) i++;
+    return i / sr;
+  };
+  const sustains = buf.duration > 3 && rms(2.0, 2.9) > rms(0.6, 1.4) * 0.5;
+  return { buf, loop: sustains ? [zero(0.8), zero(2.8)] : null };
+}
+
+function playSamples(notes, inst) {
+  const out = ac.createGain();
+  out.gain.value = 1.8; // samples are recorded quieter than the synths
+  out.connect(master);
+  const mine = playing = { out, oscs: [], release: 0.5 };
+  Promise.all(notes.map((m) => loadNote(inst, m))).then((loaded) => {
+    if (playing !== mine) return; // the chord changed while loading
+    const t = ac.currentTime;
+    for (const { buf, loop } of loaded) {
+      const src = ac.createBufferSource();
+      src.buffer = buf;
+      if (loop) { src.loop = true; [src.loopStart, src.loopEnd] = loop; }
+      src.connect(out);
+      src.start(t);
+      mine.oscs.push(src);
+    }
+  }, () => loadFailed(inst));
+}
+
+// Fetch every note the current chords need, so changing chords is instant.
+function preload() {
+  const inst = instSel.value;
+  if (INSTRUMENTS[inst] || !ac) return;
+  $('note').textContent = `Loading ${instSel.selectedOptions[0].text}…`;
+  Promise.all([...new Set(slots.flatMap(voice))].map((m) => loadNote(inst, m))).then(
+    () => { if (instSel.value === inst) $('note').textContent = ''; },
+    () => loadFailed(inst));
+}
+
+function loadFailed(inst) {
+  if (instSel.value === inst) $('note').textContent = `Couldn't load ${instSel.selectedOptions[0].text}. Check your connection and pick it again.`;
 }
 
 function setSlot(n) {

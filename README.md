@@ -5,7 +5,9 @@ Play chords with your hands through your webcam, then sing over them. Hand track
 - **Hold up N fingers** (both hands add up) to play chord N. Fists or hands down = silence.
 - **Any key**: pick one of 24 keys to get its 7 chords.
 - **Any song**: paste a song's chords from any chord sheet (e.g. `[Verse] G D/F# Em7 | Cadd9`). Each chord is used once, in order, up to 10 (one per finger).
-- Four sounds: Warm Synth, Soft Pad, Keys, Organ.
+- **Sounds**: 4 built-in synths plus all 128 General MIDI instruments (piano, guitars, bass, strings, choir, brass, reeds, flutes, synth leads and pads, world instruments, percussion, sound effects). These are recorded samples from the [FluidR3 GM soundfont](https://github.com/gleitz/midi-js-soundfonts), loaded the first time you pick one. Sustained sounds loop while you hold a chord.
+
+Live: https://munchingwolf.github.io/air-chords/
 
 ## Run
 
